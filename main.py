@@ -10,6 +10,8 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import MDS
+from transformers import AutoModel
+import torch
 
 # Colours
 white = (255, 255, 255)
@@ -20,12 +22,13 @@ class ScoringSystem():
     def score_image(self, image):
         return 0
 
-class EmbeddingsScoring():
+class EmbeddingsScoring(ScoringSystem):
     def __init__(self, model):
         from sentence_transformers import SentenceTransformer 
         # Load CLIP model
         self.model = SentenceTransformer(model)
         self.goal = None
+        self.scale = 100
         
     def set_goal_text(self, text):
         # Encode text descriptions
@@ -85,6 +88,27 @@ class EmbeddingsScoring():
         encodings = self.model.encode(content)
         return self.model.similarity(encodings, encodings)
 
+
+class NeuroScoring(ScoringSystem):
+    def __init__(self):
+        super().__init__()
+        self.model = AutoModel.from_pretrained(
+            "epfl-neuroai/vjepa2-encoder-basic",
+            trust_remote_code=True,
+            )
+        self.model.eval()
+        self.scale = 100
+
+    def score_image(self, image):
+        
+        #video = torch.zeros(1, 36, 3, 224, 224)
+        image = torch.from_numpy(np.broadcast_to(np.asarray(image).reshape(1,1,3,224,224), (1, 36, 3, 224, 224)))
+
+        with torch.no_grad():
+            prediction = self.model.predict_fmri(image)
+            print(prediction.numpy()[0][0])
+            return prediction.numpy()[0][0]
+        
 
 # Mutation strategies
 class MutationStrategy():
@@ -604,8 +628,8 @@ class LocalSearchMethod():
         self.mutationStrategy = mutationStrategy
         self.scoringSystem = scoringSystem
 
-        self.score = 0
-        self.best_score = 0
+        self.score = None
+        self.best_score = None
 
         self.history = []
         self.best_history = []
@@ -618,7 +642,7 @@ class LocalSearchMethod():
         if score == None:
             score = self.score
 
-        if score >= self.best_score:
+        if self.best_score==None or score >= self.best_score:
             if representation == None:
                 representation = copy.deepcopy(self.mutationStrategy.representation)
             if image == None:
@@ -677,14 +701,14 @@ class SimulatedAnnealing(LocalSearchMethod):
 
         gif = []
 
-        while temp > min_temp and self.best_score < satisfying_score:         
+        while temp > min_temp: # and self.best_score < satisfying_score:         
             previousRepresentation = copy.deepcopy(mutationStrategy.representation)
 
             mutationStrategy.mutate_image(temp)
 
             score = self.scoringSystem.score_image(mutationStrategy.render_image())
 
-            score_dif = 100 * (score - self.score)
+            score_dif = self.scoringSystem.scale * (score - self.score)
 
             if score_dif < -MIN_DELTA and temp > 0:
                 # accept worse random step
@@ -717,6 +741,7 @@ class SimulatedAnnealing(LocalSearchMethod):
             
             if self.score > self.best_score:
                 self.update_best(i, image=image, image_path=image_path)
+                self.save_history("current", image_path) # remove later
                 print(f"{i} {self.best_score}")
             
             if max_iterations and i >= max_iterations:
@@ -825,8 +850,8 @@ def sample_distances(mutationStrategy, scoreSystem, samples=1000, sample_size = 
 
 
 def alternate_blobs_pixels(scoreSystem, imageDir, iterations):
-    blobsStrategy = MoveBlobsStrategy(128, 128, 3, white)
-    pixelsStrategy = RandomPixelFlipStrategy(128, 128)
+    blobsStrategy = MoveBlobsStrategy(SHAPE[0], SHAPE[1], 3, white)
+    pixelsStrategy = RandomPixelFlipStrategy(SHAPE[0], SHAPE[1])
     
     localSearch = SimulatedAnnealing(copy.deepcopy(pixelsStrategy), scoreSystem)
 
@@ -1014,6 +1039,8 @@ def simmilarity_boxplot(name, strategies, strategyNames, sample_size=128):
 if __name__ == '__main__':
     command = sys.argv[1]
 
+    SHAPE = (224, 224)
+
     if command == "anneal":
         # Compute similarities
 
@@ -1027,8 +1054,9 @@ if __name__ == '__main__':
         # Create the directory
         os.makedirs(path, exist_ok=True)
         
-        scoreSystem = EmbeddingsScoring("clip-ViT-B-32")
-        scoreSystem.set_goal_text(prompt)
+        #scoreSystem = EmbeddingsScoring("clip-ViT-B-32")
+        #scoreSystem.set_goal_text(prompt)
+        scoreSystem = NeuroScoring()
 
         if sys.argv[2] == "alternate":
             alternate_blobs_pixels(scoreSystem, imageDir, 10)
@@ -1036,7 +1064,7 @@ if __name__ == '__main__':
         elif sys.argv[2] == "increasing-blob":
             iterations = int(sys.argv[4])
             groupSize = int(sys.argv[5])
-            mutationStrategy = MoveBlobsStrategy(128, 128, groupSize, white, recenter=True)                
+            mutationStrategy = MoveBlobsStrategy(SHAPE[0], SHAPE[1], groupSize, white, recenter=True)                
             localSearch = SimulatedAnnealing(copy.deepcopy(mutationStrategy), scoreSystem)
 
             for i in range(iterations):
@@ -1053,12 +1081,12 @@ if __name__ == '__main__':
             blobCount = 3
             if len(sys.argv) > 4:
                 blobCount = int(sys.argv[4])
-            blobsStrategy = MoveBlobsStrategy(128, 128, blobCount, white, recenter=True)
+            blobsStrategy = MoveBlobsStrategy(SHAPE[0], SHAPE[1], blobCount, white, recenter=True)
 
             stripeCount = 5
             if len(sys.argv) > 5:
                 stripeCount = int(sys.argv[5])
-            stripesStrategy = ColourStripesStrategy(128, 128, stripeCount)
+            stripesStrategy = ColourStripesStrategy(SHAPE[0], SHAPE[1], stripeCount)
 
             localSearch = SimulatedAnnealing(blobsStrategy, scoreSystem)
             localSearch.search(alpha=0.99)
@@ -1070,7 +1098,7 @@ if __name__ == '__main__':
             localSearch.save_history("coloured-blob--colour", f"{imageDir}/")
             pallet = copy.deepcopy(localSearch.best_representation)
             
-            colouringStrategy = ColourInsideMask(128, 128, mask, pallet=pallet, blobPerColour=2)
+            colouringStrategy = ColourInsideMask(SHAPE[0], SHAPE[1], mask, pallet=pallet, blobPerColour=2)
             localSearch = SimulatedAnnealing(colouringStrategy, scoreSystem)
             localSearch.search(alpha=0.99)
             localSearch.save_history("coloured-blob", f"{imageDir}/")
@@ -1079,7 +1107,7 @@ if __name__ == '__main__':
             stripeCount = 5
             if len(sys.argv) > 4:
                 stripeCount = int(sys.argv[4])
-            stripesStrategy = ColourStripesStrategy(128, 128, stripeCount)
+            stripesStrategy = ColourStripesStrategy(SHAPE[0], SHAPE[1], stripeCount)
 
             localSearch = SimulatedAnnealing(stripesStrategy, scoreSystem)
             localSearch.search(alpha=0.99)
@@ -1089,7 +1117,7 @@ if __name__ == '__main__':
             blobCount = 5
             if len(sys.argv) > 5:
                 blobCount = int(sys.argv[5])
-            blobsStrategy = ColourShapeSimultaneous(128, 128, shapeBlobCount=blobCount, pallet=pallet)
+            blobsStrategy = ColourShapeSimultaneous(SHAPE[0], SHAPE[1], shapeBlobCount=blobCount, pallet=pallet)
 
             localSearch = SimulatedAnnealing(blobsStrategy, scoreSystem)
             localSearch.search(alpha=0.99)
@@ -1101,19 +1129,19 @@ if __name__ == '__main__':
                 blobCount = 3
                 if len(sys.argv) > 4:
                     if sys.argv[4] == "free":
-                        mutationStrategy = MoveBlobsStrategy(128, 128, 2, white, recenter=True, freeBlobCount=True)
+                        mutationStrategy = MoveBlobsStrategy(SHAPE[0], SHAPE[1], 2, white, recenter=True, freeBlobCount=True)
                     else:
                         blobCount = int(sys.argv[4])
-                        mutationStrategy = MoveBlobsStrategy(128, 128, blobCount, white, recenter=True)
-                mutationStrategy = MoveBlobsStrategy(128, 128, blobCount, white, recenter=True)
+                        mutationStrategy = MoveBlobsStrategy(SHAPE[0], SHAPE[1], blobCount, white, recenter=True)
+                mutationStrategy = MoveBlobsStrategy(SHAPE[0], SHAPE[1], blobCount, white, recenter=True)
             elif sys.argv[2] == "pixel":
-                mutationStrategy = RandomPixelFlipStrategy(128, 128)
+                mutationStrategy = RandomPixelFlipStrategy(SHAPE[0], SHAPE[1])
             elif sys.argv[2] == "stripes":
                 stripeCount = 3
                 if len(sys.argv) > 4:
                     stripeCount = int(sys.argv[4])
 
-                mutationStrategy = ColourStripesStrategy(128, 128, stripeCount)
+                mutationStrategy = ColourStripesStrategy(SHAPE[0], SHAPE[1], stripeCount)
             elif sys.argv[2] == "colourShape":
                 coloursBlobCount = 5
                 if len(sys.argv) > 4:
@@ -1122,10 +1150,10 @@ if __name__ == '__main__':
                 if len(sys.argv) > 5:
                     shapeBlobCountblobCount = int(sys.argv[5])
                 
-                mutationStrategy = ColourShapeSimultaneous(128, 128, colourBlobCount=coloursBlobCount, shapeBlobCount=shapeBlobCount, freeBlobCount=True)
+                mutationStrategy = ColourShapeSimultaneous(SHAPE[0], SHAPE[1], colourBlobCount=coloursBlobCount, shapeBlobCount=shapeBlobCount, freeBlobCount=True)
 
             localSearch = SimulatedAnnealing(mutationStrategy, scoreSystem)
-            localSearch.search(alpha=0.995, max_iterations=2500, image_path=imageDir)
+            localSearch.search(alpha=0.9, max_iterations=1000, image_path=imageDir) #0.995 2500
 
             localSearch.save_history(sys.argv[2], f"{imageDir}/")
 
@@ -1138,12 +1166,12 @@ if __name__ == '__main__':
     elif command == "measure_steps":
         scoreSystem = EmbeddingsScoring("clip-ViT-B-32")
         
-        mutationStrategy = RandomPixelFlipStrategy(128, 128)
+        mutationStrategy = RandomPixelFlipStrategy(SHAPE[0], SHAPE[1])
         
         if sys.argv[2] == "blob":
-            mutationStrategy = MoveBlobsStrategy(128, 128, 3, white)
+            mutationStrategy = MoveBlobsStrategy(SHAPE[0], SHAPE[1], 3, white)
         elif sys.argv[2] == "stripes":
-            mutationStrategy = ColourStripesStrategy(128, 128, 5)
+            mutationStrategy = ColourStripesStrategy(SHAPE[0], SHAPE[1], 5)
 
         means = []
         temp = 1
@@ -1166,25 +1194,25 @@ if __name__ == '__main__':
         print(means)
 
     elif command == "stripe_avg_over_p":
-        mutationStrategiesMap = lambda p: ColourStripesStrategy(128, 128, p)
+        mutationStrategiesMap = lambda p: ColourStripesStrategy(SHAPE[0], SHAPE[1], p)
         counts = np.arange(40) + 1
         
         plot_avg_similarity_over_parameter("Stripe Count", mutationStrategiesMap, counts)
 
     elif command == "stripe_annealing_over_p":
-        mutationStrategiesMap = lambda p: ColourStripesStrategy(128, 128, p)
+        mutationStrategiesMap = lambda p: ColourStripesStrategy(SHAPE[0], SHAPE[1], p)
         counts = [1, 2, 3, 4, 5, 6, 7, 8]
 
         plot_annealing_over_parameter("Stripe Count", mutationStrategiesMap, counts)
 
     elif command == "blob_avg_over_p":
-        mutationStrategiesMap = lambda p: MoveBlobsStrategy(128, 128, p, white, recenter=True)
+        mutationStrategiesMap = lambda p: MoveBlobsStrategy(SHAPE[0], SHAPE[1], p, white, recenter=True)
         counts = [1, 2, 3, 4, 5, 6, 7, 8]
 
         plot_avg_similarity_over_parameter("Blob Count", mutationStrategiesMap, counts)
 
     elif command == "blob_annealing_over_p":
-        mutationStrategiesMap = lambda p: MoveBlobsStrategy(128, 128, p, white, recenter=True)
+        mutationStrategiesMap = lambda p: MoveBlobsStrategy(SHAPE[0], SHAPE[1], p, white, recenter=True)
         counts = [1, 6, 11, 16, 21, 26]
 
         plot_annealing_over_parameter("Blob Count", mutationStrategiesMap, counts)
@@ -1195,11 +1223,11 @@ if __name__ == '__main__':
 
         if strategyOption == "all":
             strategies = [
-                RandomPixelFlipStrategy(128, 128),
-                MoveBlobsStrategy(128, 128, 4, white, recenter=True),
-                ColourStripesStrategy(128, 128, 4),
-                ColourBlobs(128, 128, 4),
-                ColourShapeSimultaneous(128, 128),
+                RandomPixelFlipStrategy(SHAPE[0], SHAPE[1]),
+                MoveBlobsStrategy(SHAPE[0], SHAPE[1], 4, white, recenter=True),
+                ColourStripesStrategy(SHAPE[0], SHAPE[1], 4),
+                ColourBlobs(SHAPE[0], SHAPE[1], 4),
+                ColourShapeSimultaneous(SHAPE[0], SHAPE[1]),
             ]
             names = [
                 "Black-white pixels",
@@ -1211,15 +1239,15 @@ if __name__ == '__main__':
 
         elif strategyOption == "stripes":
             counts = [1, 2, 3, 4, 5, 6, 7, 8]
-            strategies = [ColourStripesStrategy(128, 128, count) for count in counts]
+            strategies = [ColourStripesStrategy(SHAPE[0], SHAPE[1], count) for count in counts]
             names = [f"{count} stripes" for count in counts]
 
         elif strategyOption == "blobs":
             counts = [1, 2, 3, 4, 5, 6, 7, 8]
-            strategies = [MoveBlobsStrategy(128, 128, count, white, recenter=True) for count in counts]
+            strategies = [MoveBlobsStrategy(SHAPE[0], SHAPE[1], count, white, recenter=True) for count in counts]
             names = [f"{count} blobs" for count in counts]
 
-            strategies.append(MoveBlobsStrategy(128, 128, 5, white, recenter=True, freeBlobCount=True))
+            strategies.append(MoveBlobsStrategy(SHAPE[0], SHAPE[1], 5, white, recenter=True, freeBlobCount=True))
             names.append("free blob count")
 
         if comparisonOption == "mds":
