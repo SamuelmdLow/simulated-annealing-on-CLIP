@@ -462,17 +462,18 @@ class ColourInsideMask(ColourBlobs):
         return img
 
 class ColourShapeSimultaneous(MutationStrategy):
-    def __init__(self, sizeX, sizeY, colourBlobCount=5, shapeBlobCount=5, pallet=None, freeBlobCount=False):
+    def __init__(self, sizeX, sizeY, colourBlobCount=5, shapeBlobCount=5, pallet=None, freeBlobCount=False, recenter=True):
         super().__init__(sizeX, sizeY)
 
         self.colourBlobCount = colourBlobCount
         self.freeBlobCount = freeBlobCount
         self.shapeBlobCount = shapeBlobCount
         self.pallet = pallet
+        self.recenter = recenter
         self.reset_representation()
 
     def reset_representation(self):
-        self.shape = MoveBlobsStrategy(self.sizeX, self.sizeY, self.shapeBlobCount, white, recenter=True, freeBlobCount=self.freeBlobCount)
+        self.shape = MoveBlobsStrategy(self.sizeX, self.sizeY, self.shapeBlobCount, white, recenter=self.recenter, freeBlobCount=self.freeBlobCount)
         self.colour = ColourBlobs(self.sizeX, self.sizeY, blobCount=self.colourBlobCount, pallet=self.pallet, freeBlobCount=self.freeBlobCount)
 
         self.representation = [self.shape.representation, self.colour.representation]
