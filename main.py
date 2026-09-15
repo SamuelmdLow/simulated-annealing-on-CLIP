@@ -8,6 +8,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import MDS
+from PIL import Image
 
 from mutationStrategies import RandomPixelFlipStrategy, MoveBlobsStrategy, ColourStripesStrategy, ColourBlobs, ColourShapeSimultaneous, ColourInsideMask
 from scoringSystems import EmbeddingsScoring
@@ -234,18 +235,19 @@ if __name__ == '__main__':
 
     if command == "anneal":
         mutationOption = sys.argv[2]
-        prompt = sys.argv[3].replace("_", " ")
-        imageDir = prompt
+        prompt = sys.argv[3]
+        imageDir = prompt.replace(".", "_").replace("/", "-")
 
-        # Path
+        scoreSystem = EmbeddingsScoring("clip-ViT-B-32")
+
+        if ".jpg" in prompt or ".png" in prompt:
+            scoreSystem.set_goal_image(Image.open(prompt))
+        else:
+            scoreSystem.set_goal_text(prompt.replace("_", " "))
+
         path = os.path.join("images", imageDir)
-        
-        # Create the directory
         os.makedirs(path, exist_ok=True)
         
-        scoreSystem = EmbeddingsScoring("clip-ViT-B-32")
-        scoreSystem.set_goal_text(prompt)
-
         if mutationOption == "alternate":
             # anneal alternate PROMPT
             alternate_blobs_pixels(scoreSystem, imageDir, 10)
@@ -254,18 +256,21 @@ if __name__ == '__main__':
             # anneal increasing-blob PROMPT ITERATIONS GROUPSIZE
             iterations = int(sys.argv[4])
             groupSize = int(sys.argv[5])
-            mutationStrategy = MoveBlobsStrategy(128, 128, groupSize, white, recenter=True)                
+            mutationStrategy = ColourShapeSimultaneous(128, 128, colourBlobCount=groupSize, shapeBlobCount=groupSize)                
             localSearch = SimulatedAnnealing(copy.deepcopy(mutationStrategy), scoreSystem)
 
             for i in range(iterations):
-                localSearch.search(alpha=1 - 0.1/(i+1), initial_temp=1 - (i/iterations)**2)
+                localSearch.search(alpha=1 - 0.1/(i+1), initial_temp=1 - (i/iterations)**2, image_path=imageDir)
                 localSearch.save_history("increasing-blob", f"{imageDir}/")
                 
-                for blob in localSearch.mutationStrategy.representation:
+                for blob in localSearch.mutationStrategy.shape.representation:
+                    blob.tempAdjust = blob.tempAdjust * 0.75
+                for blob in localSearch.mutationStrategy.colour.representation:
                     blob.tempAdjust = blob.tempAdjust * 0.75
 
                 for g in range(groupSize):
-                    localSearch.mutationStrategy.add_blob()
+                    localSearch.mutationStrategy.shape.add_blob()
+                    localSearch.mutationStrategy.colour.add_blob()
 
         elif mutationOption == "coloured-blob":
             # anneal coloured-blob PROMPT BLOBCOUNT STRIPECOUNT
@@ -353,8 +358,18 @@ if __name__ == '__main__':
                 
                 mutationStrategy = ColourShapeSimultaneous(128, 128, colourBlobCount=coloursBlobCount, shapeBlobCount=shapeBlobCount, freeBlobCount=freeBlobCount)
 
+            elif mutationOption == "colourBlob":
+                # anneal colourBlob PROMPT COLOURSBLOBCOUNT SHAPEBLOBCOUNT
+                blobCount = 5
+                freeBlobCount = True
+                if len(sys.argv) > 4:
+                    blobCount = int(sys.argv[4])
+                    freeBlobCount = False               
+                
+                mutationStrategy = ColourBlobs(128, 128, blobCount=blobCount, freeBlobCount=freeBlobCount)
+
             localSearch = SimulatedAnnealing(mutationStrategy, scoreSystem)
-            localSearch.search(alpha=0.995, max_iterations=2500, image_path=imageDir)
+            localSearch.search(alpha=0.995, max_iterations=3000, image_path=imageDir)
             localSearch.save_history(mutationOption, f"{imageDir}/")
 
 

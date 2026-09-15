@@ -3,6 +3,7 @@ import random
 import os
 import math
 import copy
+import numpy as np
 
 # Local search methods
 class LocalSearchMethod():
@@ -132,8 +133,6 @@ class SimulatedAnnealing(LocalSearchMethod):
                 print(f"Harden {self.best_score} / {i-harden_i}")
                 harden_i = i
                 mutationStrategy.baseImage = self.best_history[-1]
-                #mutationStrategy.reset_representation()
-                #self.best_representation = copy.deepcopy(mutationStrategy.representation)
                 temp = initial_temp
 
         mutationStrategy.representation = copy.deepcopy(self.best_representation)
