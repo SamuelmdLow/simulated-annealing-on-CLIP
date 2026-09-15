@@ -1,0 +1,531 @@
+from PIL import Image, ImageDraw
+import random
+import math
+import copy
+import numpy as np
+
+# Colours
+white = (255, 255, 255)
+black = (0, 0, 0)
+
+# Mutation strategies
+class MutationStrategy():
+    def __init__(self, sizeX, sizeY):
+        pil_image = Image.new(mode="RGB", size=(sizeX, sizeY))
+        draw = ImageDraw.Draw(pil_image)
+        draw.rectangle([(0, 0), (pil_image.width - 1, pil_image.height - 1)], black)
+        self.baseImage = pil_image
+        self.sizeX = sizeX
+        self.sizeY = sizeY
+
+        self.representation = None
+        self.best_representation = None
+
+    def mutate_image(self, temp):
+        return self.baseImage # Placeholder
+
+    def render_image(self):
+        return self.baseImage
+
+    def reset_representation(self):
+        self.representation = None
+
+class RandomPixelFlipStrategy(MutationStrategy):
+    def __init__(self, sizeX, sizeY):
+        super().__init__(sizeX, sizeY)
+        self.representation = self.baseImage
+        self.best_representation = self.baseImage
+
+    def mutate_image(self, temp):
+        if temp > 0:
+            image = self.representation.copy()
+            px = image.load()
+            
+            for i in range(max(1, int(self.sizeX*self.sizeY * (0.01+ 0.99*temp* random.random())))):
+                x = random.randint(0, image.width - 1)
+                y = random.randint(0, image.height - 1)
+                self.flip_pixel(px, x, y)
+            
+            self.representation = image
+    
+    def flip_pixel(self, px, x, y):
+        if px[x,y] == black:
+            px[x,y] = white
+        else:
+            px[x,y] = black
+
+    def render_image(self):
+        return self.representation
+
+class ColourStripesStrategy(MutationStrategy):
+    def __init__(self, sizeX, sizeY, stripe_count):
+        super().__init__(sizeX, sizeY)
+        self.stripe_count = stripe_count
+        self.representation = []
+        for i in range(stripe_count):
+            self.representation.append([0,0,0])
+
+    def mutate_image(self, temp):
+        for colour in self.representation:
+            if random.random() < temp:
+                for i in range(len(colour)):
+                    step = int(max(1, 255 * temp) * 2 * (random.random()-0.5))
+                    colour[i] = min(max(0,colour[i] + step), 255)
+
+    def render_image(self):
+        stripeWidth = self.sizeX//len(self.representation)
+
+        stripes = []
+        for colour in self.representation:
+            stripe = np.broadcast_to(np.array(colour), (self.sizeY, stripeWidth, 3))
+            stripes.append(stripe)
+        img = np.concatenate(stripes, axis=1).astype(np.uint8)
+        img = Image.fromarray(img)
+        
+        return img
+
+class Colour():
+    def __init__(self):
+        self.pallet = []
+
+    def randomFromPallet(self):
+        if len(self.pallet) <= 0:
+            self.newColour()
+            return 0
+        return random.randint(0, len(self.pallet)-1)
+
+    def newColour(self):
+        r = random.randint(0, 255)
+        g = random.randint(0, 255)
+        b = random.randint(0, 255)
+        new = (r, g, b)
+        self.pallet.append(new)
+        return len(self.pallet) - 1
+    
+    def mergeColours(self, blobs):
+        if len(self.pallet) < 2:
+            return
+        first = random.randint(0, len(self.pallet) - 1)
+        second = first
+        while first == second:
+            second = random.randint(0, len(self.pallet) - 1)
+        if first > second:
+            temp = first
+            first = second
+            second = temp
+
+        for blob in blobs:
+            if blob.colour == second:
+                blob.colour = first
+            elif blob.colour == len(self.pallet) - 1:
+                blob.colour = second
+        self.pallet[second] = self.pallet[len(self.pallet) - 1]
+        self.pallet.pop()
+        return self.pallet[first]
+
+    def mutateColour(self, colourIndex):
+        colour = self.pallet[colourIndex]
+        r = min(int(colour[0] * (random.random() + 0.5)), 255)
+        g = min(int(colour[1] * (random.random() + 0.5)), 255)
+        b = min(int(colour[2] * (random.random() + 0.5)), 255)
+        self.pallet[colourIndex] = (r, g, b)
+        return colourIndex
+
+    def mutatePallet(self, blobs):
+        rand = random.random()
+        blob = blobs[random.randint(0, len(blobs)-1)]
+        if rand < 0.2 or len(self.pallet) <= 0:
+            blob.colour = self.newColour()
+        elif rand < 0.4 and len(self.pallet) >=2:
+            self.mergeColours(blobs)
+        else:
+            palletIndex = random.randint(0, len(self.pallet) - 1)
+            self.mutateColour(palletIndex)
+        print(self.pallet)
+
+class Blob():
+    def __init__(self, image_sizeX, image_sizeY):
+        self.x = image_sizeX // 2
+        self.y = image_sizeY // 2
+        self.radius = 1
+        self.colour = None
+        self.tempAdjust = 1
+        
+        self.image_sizeX = image_sizeX
+        self.image_sizeY = image_sizeY
+
+    def __str__(self):
+        return f"[{self.x}, {self.y}], radius: {self.radius}"
+
+    def random_mutate(self, temp, blobCount):
+        temp = temp * self.tempAdjust
+
+        step_sizeX = max(1, int((self.image_sizeX/2) * temp)) 
+        if self.x <= 0:
+            self.x = self.x + random.randint(0, step_sizeX)
+        elif self.x >= self.image_sizeX -1:
+            self.x = self.x + random.randint(-step_sizeX, 0)
+        else:
+            self.x = self.x + random.randint(-step_sizeX, step_sizeX)
+
+        step_sizeY = max(1, int((self.image_sizeY/2) * temp))
+        if self.y <= 0:
+            self.y = self.y + random.randint(0, step_sizeY)
+        elif self.y >= self.image_sizeY -1:
+            self.y = self.y + random.randint(-step_sizeY, 0)
+        else:
+            self.y = self.y + random.randint(-step_sizeY, step_sizeY)
+
+        step_size = max(1, int((np.sqrt(self.image_sizeX**2 +  self.image_sizeY**2)/blobCount) * temp))
+        if self.radius <= 1:
+            self.radius = self.radius + random.randint(0, step_size)
+        elif self.radius > max(self.image_sizeX, self.image_sizeY) // 4:
+            self.radius = max(0.5, self.radius + random.randint(-step_size, 0))
+        else:
+            self.radius = max(0.5, self.radius + random.randint(-step_size, step_size))
+
+    def rotate(self, rotation):
+        opposite = self.x - (self.image_sizeX/2)
+        adjacent = self.y - (self.image_sizeY/2)
+        
+        hypotonuse = math.sqrt(opposite**2 + adjacent**2)
+
+        if adjacent == 0:
+            if opposite > 0:
+                angle = math.pi/2
+            else:
+                angle = -math.pi/2
+        else:
+            angle = math.atan(opposite/adjacent)
+
+        newAngle = angle + rotation
+
+        self.x = hypotonuse * math.sin(newAngle)
+        self.y = hypotonuse * math.cos(newAngle)
+
+    def effect(self, x, y):
+        dist = (x-self.x)**2 + (y-self.y)**2
+        if dist == 0:
+            return 1000
+        return self.radius**2 / ((x-self.x)**2 + (y-self.y)**2)
+
+    def addBlobToImage(self, image, colours=None):
+        px = image.load()
+        for px_x in range(image.width):
+            for px_y in range(image.height):
+                dist = math.pow(px_x - self.x, 2) + math.pow(px_y - self.y, 2)
+                if dist < math.pow(self.radius, 2):
+
+                    if colours:
+                        px[px_x, px_y] = colours.pallet[self.colour]
+                    else:
+                        px[px_x, px_y] = black
+
+class MoveBlobsStrategy(MutationStrategy):
+
+    def __init__(self, sizeX, sizeY, blob_count, colour, recenter=False, freeBlobCount=False):
+        super().__init__(sizeX, sizeY)
+        self.representation = []
+        self.best_representation = []
+        self.colour = colour
+        self.recenter = recenter
+        self.freeBlobCount = freeBlobCount
+        
+        for i in range(blob_count):
+            self.add_blob()
+
+    def add_blob(self):
+        self.representation.append(Blob(self.sizeX, self.sizeY))
+
+    def recenter_blobs(self):
+        minX = min([blob.x - blob.radius for blob in self.representation])
+        maxX = max([blob.x + blob.radius for blob in self.representation])
+        minY = min([blob.y - blob.radius for blob in self.representation])
+        maxY = max([blob.y + blob.radius for blob in self.representation])
+
+        width = maxX-minX
+        height = maxY-minY
+        offsetX = minX + width/2 - (self.sizeX/2)
+        offsetY = minY + height/2 - (self.sizeY/2)
+
+        for blob in self.representation:
+            blob.x -= offsetX
+            blob.y -= offsetY
+
+        length = max(width, height)
+        
+        if width > self.sizeX or height > self.sizeY:
+            scale = min(self.sizeX/width, self.sizeY/height)
+
+            for blob in self.representation:
+                blob.x = self.sizeX/2 + (blob.x - self.sizeX/2) * scale
+                blob.y = self.sizeY/2 + (blob.y - self.sizeY/2) * scale
+                blob.radius = blob.radius * scale
+
+    def rotate_blobs(self, rotation):
+        for blob in self.representation:
+            blob.rotate(rotation)
+
+    def flip_blobs_x(self):
+        for blob in self.representation:
+            blob.x = -1 * blob.x
+
+    def flip_blobs_y(self):
+        for blob in self.representation:
+            blob.y = -1 * blob.y
+
+    def mutate_image(self, temp):
+        if temp > 0:
+
+            if self.freeBlobCount:
+                if random.random() < temp:
+                    if random.random() < 0.5 and len(self.representation) > 1:
+                        rand = random.random() * sum(map(lambda b: b.radius**2, self.representation))
+                        
+                        areaSum = 0
+                        for i, blob in enumerate(self.representation):
+                            areaSum += blob.radius ** 2
+                            if rand <= areaSum:
+                                self.representation.pop(i)
+                                break
+
+                    else:
+                        self.representation.append(copy.deepcopy(self.representation[random.randint(0, len(self.representation)-1)]))
+
+            for blob in self.representation:
+                blob.random_mutate(temp, len(self.representation))
+
+            if random.random() < temp:
+                choice = random.random()
+                if choice < 0.5:
+                    rotation = 2*math.pi*(random.random()-0.5)
+                    self.rotate_blobs(rotation)
+                elif choice < 0.75:
+                    self.flip_blobs_x()
+                else:
+                    self.flip_blobs_y()
+
+            if self.recenter:
+                self.recenter_blobs()
+
+    def as_mask(self, representation = None):
+        if representation == None:
+            representation = self.representation
+
+        xs = np.arange(self.sizeX)
+        ys = np.arange(self.sizeY)
+
+        X = xs[:, None]
+        Y = ys[None, :]
+
+        effects = np.zeros((self.sizeX, self.sizeY))
+        for blob in representation:
+            dists = (X-blob.x) ** 2 + (Y-blob.y) ** 2
+            dists = np.maximum(dists, 1e-4)
+        
+            effects += blob.radius**2 / dists
+
+        mask = np.where(effects > 1, 1, 0)
+        return mask
+
+    def image_array(self):
+        base = np.asarray(self.baseImage)
+
+        xs = np.arange(self.sizeX)
+        ys = np.arange(self.sizeY)
+
+        X = xs[:, None]
+        Y = ys[None, :]
+
+        effects = np.zeros((self.sizeX, self.sizeY))
+        for blob in self.representation:
+            dists = (X-blob.x) ** 2 + (Y-blob.y) ** 2
+            dists = np.maximum(dists, 1e-4)
+        
+            effects += blob.radius**2 / dists
+        
+        cells = np.where(effects[..., None] > 1, 1, 0)
+        return cells
+
+    def render_image(self):
+        base = np.asarray(self.baseImage)
+
+        xs = np.arange(self.sizeX)
+        ys = np.arange(self.sizeY)
+
+        X = xs[:, None]
+        Y = ys[None, :]
+
+        effects = np.zeros((self.sizeX, self.sizeY))
+        for blob in self.representation:
+            dists = (X-blob.x) ** 2 + (Y-blob.y) ** 2
+            dists = np.maximum(dists, 1e-4)
+        
+            effects += blob.radius**2 / dists
+        
+        try:
+            cells = np.where(effects[..., None] > 1, self.colour, base).astype(np.uint8)
+        except:
+            print(f"{self.sizeX} {self.sizeY} {base.shape} {effects.shape}")
+
+        img = Image.fromarray(cells)
+
+        return img
+
+class ColourPoint(Blob):
+    def __init__(self, image_sizeX, image_sizeY, colour=None, colour_fixed=False):
+        super().__init__(image_sizeX, image_sizeY)
+        self.colour_fixed = colour_fixed
+        if colour:
+            self.colour = colour
+        else:
+            self.colour = [255 * random.random() for i in range(3)]
+
+    def random_mutate(self, temp, blobCount):
+        MIN_COLOUR_STEP = 3
+        super().random_mutate(temp, blobCount)
+
+        if not self.colour_fixed:
+            for i in range(len(self.colour)):
+                step = int(max(MIN_COLOUR_STEP, 255 * temp * self.tempAdjust) * 2 * (random.random()-0.5))
+                self.colour[i] = min(max(0,self.colour[i] + step), 255)
+
+class ColourBlobs(MoveBlobsStrategy):
+    def __init__(self, sizeX, sizeY, blobCount=5, pallet=None, blobPerColour=1, freeBlobCount=False):
+        super().__init__(sizeX, sizeY, 0, black, recenter=False, freeBlobCount=freeBlobCount)
+        
+        self.representation = []
+        self.best_representation = []
+
+        if pallet:
+            for colour in pallet:
+                for b in range(blobPerColour):
+                    self.representation.append(ColourPoint(self.sizeX, self.sizeY, colour=colour, colour_fixed=True))
+        elif blobCount:
+            for i in range(blobCount):
+                self.representation.append(ColourPoint(self.sizeX, self.sizeY))
+
+    def image_array(self):
+        xs = np.arange(self.sizeX)
+        ys = np.arange(self.sizeY)
+
+        X = xs[:, None]
+        Y = ys[None, :]
+
+        effects = []
+        for blob in self.representation:
+            dists = (X-blob.x) ** 2 + (Y-blob.y) ** 2
+            dists = np.maximum(dists, 1e-4)
+        
+            effect = blob.radius**2 / dists
+            effects.append(effect)
+
+        indexes = np.argmax(np.array(effects), axis=0)
+
+        image_array = np.zeros((self.sizeX, self.sizeY, 3))
+        for i in range(len(self.representation)):
+            image_array = image_array + np.where(indexes[..., None]==i, self.representation[i].colour, [0,0,0])
+
+        return image_array
+
+    def render_image(self):
+        img = self.image_array().astype(np.uint8)
+        img = Image.fromarray(img)
+
+        return img
+
+
+class ColourInsideMask(ColourBlobs):
+    def __init__(self, sizeX, sizeY, mask, pallet=None, blobPerColour=1, blobCount=5):
+        super().__init__(sizeX, sizeY, 0, black)
+        self.mask = mask
+        
+        self.representation = []
+        self.best_representation = []
+
+        if pallet:
+            for colour in pallet:
+                for b in range(blobPerColour):
+                    self.representation.append(ColourPoint(self.sizeX, self.sizeY, colour=colour, colour_fixed=True))
+        elif blobCount:
+            for i in range(blobCount):
+                self.representation.append(ColourPoint(self.sizeX, self.sizeY))
+
+    def render_image(self):
+        colours = super().image_array()
+        mask = np.array(self.mask)
+
+        img = np.where(mask[..., None] == 1, colours, black).astype(np.uint8)
+        
+        img = Image.fromarray(img)
+
+        return img
+
+class ColourShapeSimultaneous(MutationStrategy):
+    def __init__(self, sizeX, sizeY, colourBlobCount=5, shapeBlobCount=5, pallet=None, freeBlobCount=False):
+        super().__init__(sizeX, sizeY)
+
+        self.colourBlobCount = colourBlobCount
+        self.freeBlobCount = freeBlobCount
+        self.shapeBlobCount = shapeBlobCount
+        self.pallet = pallet
+        self.reset_representation()
+
+    def reset_representation(self):
+        self.shape = MoveBlobsStrategy(self.sizeX, self.sizeY, self.shapeBlobCount, white, recenter=True, freeBlobCount=self.freeBlobCount)
+        self.colour = ColourBlobs(self.sizeX, self.sizeY, blobCount=self.colourBlobCount, pallet=self.pallet, freeBlobCount=self.freeBlobCount)
+
+        self.representation = [self.shape.representation, self.colour.representation]
+
+    def recenter_blobs(self):
+        minX = min([blob.x - blob.radius for blob in self.representation[0]])
+        maxX = max([blob.x + blob.radius for blob in self.representation[0]])
+        minY = min([blob.y - blob.radius for blob in self.representation[0]])
+        maxY = max([blob.y + blob.radius for blob in self.representation[0]])
+
+        width = maxX-minX
+        height = maxY-minY
+        offsetX = minX + width/2 - (self.sizeX/2)
+        offsetY = minY + height/2 - (self.sizeY/2)
+
+        for blob in self.representation[0] + self.representation[1]:
+            blob.x -= offsetX
+            blob.y -= offsetY
+
+        if width > self.sizeX or height > self.sizeY:
+            scale = min(self.sizeX/width, self.sizeY/height)
+
+            for blob in self.representation[0] + self.representation[1]:
+                blob.x = self.sizeX/2 + (blob.x - self.sizeX/2) * scale
+                blob.y = self.sizeY/2 + (blob.y - self.sizeY/2) * scale
+                blob.radius = blob.radius * scale
+
+    def mutate_image(self, temp):
+        self.shape.representation = self.representation[0]
+        self.colour.representation = self.representation[1]
+
+        self.shape.mutate_image(temp)
+        self.colour.mutate_image(temp)
+
+        self.representation = [self.shape.representation, self.colour.representation]
+        self.recenter_blobs()
+
+    def image_array(self):
+        base = np.asarray(self.baseImage)
+
+        self.shape.representation = self.representation[0]
+        self.colour.representation = self.representation[1]
+
+        colours = self.colour.image_array()
+        mask = self.shape.as_mask()
+
+        img = np.where(mask[..., None] == 1, colours, base).astype(np.uint8)
+        
+        return img
+    
+    def render_image(self):
+        img = self.image_array()
+
+        img = Image.fromarray(img)
+
+        return img

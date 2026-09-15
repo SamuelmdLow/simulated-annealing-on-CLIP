@@ -1,20 +1,34 @@
 # simulated-annealing-with-embeddings
-I intend to use simulated annealing to create images that match a text prompt. I will then test different method of manipulating the image to determine which is best.
+This project uses simulated annealing to optimize an image's CLIP similarity to a text prompt.
 
-## Current results
+Images are produced by a shape layer (composed of blobs of various position and size) and a colour layer (composed of colours of various position and size).
 
-![Optimizing for turtle](https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/turtle.gif?raw=true)
+Each mutation can alter these variables as well as adding or removing a colour or blob.
 
-"turtle"
-
-![Optimizing for skull](https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/chicken_bird.gif?raw=true)
-
-"chicken bird"
-
-![Optimizing for skull](https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/mushroom.gif?raw=true)
-
-"mushroom"
-
-![Optimizing for skull](https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/frog.gif?raw=true)
-
-"frog"
+<table>
+    <tr>
+        <th>Prompt</th>
+        <th>GIF</th>
+        <th>Best</th>
+    </tr>
+    <tr>
+        <td>Turtle</td>
+        <td> <img src="https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/turtle.gif?raw=true" alt="Turtle GIF" width = 360px height = 360px></td>
+        <td> <img src="https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/turtle.png?raw=true" alt="Turtle" width = 360px height = 360px></td>
+    </tr> 
+    <tr>
+        <td>Frog</td> 
+        <td> <img src="https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/frog.gif?raw=true" alt="Frog GIF" width = 360px height = 360px></td>
+        <td> <img src="https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/frog.png?raw=true" alt="Frog" width = 360px height = 360px></td>
+    </tr> 
+    <tr>
+        <td>Chicken bird</td>
+        <td> <img src="https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/chicken_bird.gif?raw=true" alt="Chicken bird GIF" width = 360px height = 360px></td>
+        <td> <img src="https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/chicken_bird.png?raw=true" alt="Chicken bird" width = 360px height = 360px></td>
+    </tr> 
+    <tr>
+        <td>Mushroom</td>
+        <td> <img src="https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/mushroom.gif?raw=true" alt="Mushroom GIF" width = 360px height = 360px></td>
+        <td> <img src="https://github.com/SamuelmdLow/simulated-annealing-with-embeddings/blob/main/examples/mushroom.png?raw=true" alt="Mushroom" width = 360px height = 360px></td>
+    </tr> 
+</table>
